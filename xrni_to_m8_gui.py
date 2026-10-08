@@ -239,8 +239,9 @@ class App(tk.Tk):
         else:
             folder=self._converted_dir('disting')
             stem=os.path.splitext(os.path.basename(source_path))[0] if source_path else 'Poly_Multisample'
+        # Disting NT is the output type, not a part of the preset's name.
         stem=re.sub(r'_DistingNT$','',stem,flags=re.I)
-        return os.path.join(folder,stem+'_DistingNT.json')
+        return os.path.join(folder,stem+'.json')
 
     def output_mode_changed(self):
         is_nt=self.output_mode.get()=='disting'
