@@ -4,7 +4,7 @@
 
 
 
-Desktop utility for converting Renoise **.xrni** instruments into sample formats for the **Dirtywave M8** and **Expert Sleepers Disting NT**.
+Desktop utility for converting Renoise **.xrni** WAV/FLAC Samples instruments into sample formats for the **Dirtywave M8** and **Expert Sleepers Disting NT**.
 
 ## Features
 
