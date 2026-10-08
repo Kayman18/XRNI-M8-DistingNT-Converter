@@ -16,6 +16,9 @@ class App(tk.Tk):
         self.minsize(1000,650)
         self.configure(bg=BG)
         self.xrni=tk.StringVar(); self.output=tk.StringVar(); self.layer=tk.IntVar(value=4); self.output_mode=tk.StringVar(value='m8')
+        self.xrni_display=tk.StringVar(); self.output_display=tk.StringVar()
+        self.xrni.trace_add('write', lambda *_: self._refresh_display_path(self.xrni, self.xrni_display))
+        self.output.trace_add('write', lambda *_: self._refresh_display_path(self.output, self.output_display))
         self.mono=tk.BooleanVar(value=False); self.normalize=tk.BooleanVar(value=False)
         self.info={}; self._build_styles(); self._build_ui(); self._ensure_output_folders()
 
@@ -42,6 +45,18 @@ class App(tk.Tk):
         s.configure('Dark.TCheckbutton',background=PANEL,foreground=FG,font=('Segoe UI',10,'bold'),indicatorcolor=ENTRY)
         s.map('Dark.TCheckbutton',background=[('active',PANEL)],indicatorcolor=[('selected',BLUE)])
         s.configure('Blue.Horizontal.TProgressbar',troughcolor='#24313a',background=GREEN,bordercolor='#24313a',lightcolor=GREEN,darkcolor=GREEN)
+
+    @staticmethod
+    def _short_display_path(path):
+        """Display only the immediate parent directory and the file name."""
+        if not path:
+            return ''
+        # Split both Windows and POSIX paths, irrespective of the host OS.
+        parts = re.split(r'[\\/]+', path.rstrip('\\/'))
+        return '/'.join(parts[-2:]) if len(parts) > 1 else parts[0]
+
+    def _refresh_display_path(self, source, destination):
+        destination.set(self._short_display_path(source.get()))
 
     def _box(self,parent):
         return tk.Frame(parent,bg=PANEL,highlightbackground=BORDER,highlightthickness=1,bd=0)
@@ -90,7 +105,7 @@ class App(tk.Tk):
     def _build_left(self,p):
         ttk.Label(p,text='1. Select Renoise Instrument (.xrni)',style='Section.TLabel').pack(anchor='w',pady=(0,6))
         row=tk.Frame(p,bg=BG); row.pack(fill='x',pady=(0,12))
-        ttk.Entry(row,textvariable=self.xrni,style='Dark.TEntry').pack(side='left',fill='x',expand=True)
+        ttk.Entry(row,textvariable=self.xrni_display,style='Dark.TEntry',state='readonly').pack(side='left',fill='x',expand=True)
         ttk.Button(row,text='Browse…',style='Dark.TButton',command=self.pick_xrni).pack(side='left',padx=(10,0))
 
         ttk.Label(p,text='2. Output Format',style='Section.TLabel').pack(anchor='w',pady=(0,6))
@@ -118,7 +133,7 @@ class App(tk.Tk):
 
         ttk.Label(p,text='4. Output File',style='Section.TLabel').pack(anchor='w',pady=(0,6))
         row=tk.Frame(p,bg=BG); row.pack(fill='x',pady=(0,12))
-        ttk.Entry(row,textvariable=self.output,style='Dark.TEntry').pack(side='left',fill='x',expand=True)
+        ttk.Entry(row,textvariable=self.output_display,style='Dark.TEntry',state='readonly').pack(side='left',fill='x',expand=True)
         ttk.Button(row,text='Browse…',style='Dark.TButton',command=self.pick_output).pack(side='left',padx=(10,0))
 
         ttk.Label(p,text='5. M8 Options',style='Section.TLabel').pack(anchor='w',pady=(0,6))
