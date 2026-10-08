@@ -28,15 +28,3 @@ python xrni_to_m8_gui.py
 For Linux, you may also need your distribution's Tkinter package (often `python3-tk`).
 
 Use the platform launch scripts if included.
-
-## Status
-
-Development version. Disting NT JSON and sample loading should be verified on the target hardware; the WAV export targets 16-bit / 44.1 kHz. Standalone Windows and Linux executables are **not** included in the source package.
-
-## Project files
-
-- `xrni_to_m8_gui.py` — desktop UI
-- `xrni_to_m8.py` — conversion logic
-- `assets/` — GUI headers
-
-The repository is being initialized; converter source and assets will be uploaded separately.
