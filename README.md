@@ -1,6 +1,7 @@
 # XRNI → M8 / Disting NT Converter
 
-<img width="1352" height="882" alt="image" src="https://github.com/user-attachments/assets/63aee76a-3d33-4594-a16d-8ce69dff968f" />
+<img width="1429" height="882" alt="image" src="https://github.com/user-attachments/assets/a8e187e7-adf2-4353-94ee-7de6bda04952" />
+
 
 
 Desktop utility for converting Renoise **.xrni** instruments into sample formats for the **Dirtywave M8** and **Expert Sleepers Disting NT**.
