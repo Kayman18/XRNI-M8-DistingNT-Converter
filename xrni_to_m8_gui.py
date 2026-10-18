@@ -91,7 +91,7 @@ class App(tk.Tk):
         titlebox=tk.Frame(header,bg=BG)
         titlebox.pack(side='left',fill='x',expand=True)
         ttk.Label(titlebox,text='XRNI Multisample Converter',style='Title.TLabel').pack(anchor='w',pady=(8,0))
-        ttk.Label(titlebox,text='Convert Renoise instruments for Dirtywave M8 or Expert Sleepers Disting NT',style='Subtitle.TLabel').pack(anchor='w',pady=(2,0))
+        ttk.Label(titlebox,text='Export for M8 / Disting NT, or normalize WAVs inside an XRNI',style='Subtitle.TLabel').pack(anchor='w',pady=(2,0))
 
         if self.m8_header_img is not None:
             tk.Label(header,image=self.m8_header_img,bg=BG,bd=0).pack(side='right',padx=(16,0))
@@ -120,6 +120,11 @@ class App(tk.Tk):
                  font=('Segoe UI',9,'bold')).pack(side='left',padx=(8,0))
         ttk.Label(mi,text='Disting mode exports all XRNI velocity layers as 16-bit / 44.1 kHz WAVs plus a Poly Multisample preset.',
                   style='PanelMuted.TLabel').pack(anchor='w',padx=(27,0),pady=(3,0))
+
+        ttk.Radiobutton(mi,text='XRNI – Normalize WAVs',variable=self.output_mode,value='xrni',
+                        style='Dark.TRadiobutton',command=self.output_mode_changed).pack(anchor='w',pady=(8,0))
+        ttk.Label(mi,text='Normalize each WAV independently; retain all mappings and settings.',
+                  style='PanelMuted.TLabel').pack(anchor='w',padx=(27,0))
 
         self.velocity_title=ttk.Label(p,text='3. Choose M8 Velocity Layer',style='Section.TLabel')
         self.velocity_title.pack(anchor='w',pady=(0,6))
@@ -223,14 +228,14 @@ class App(tk.Tk):
         return os.path.dirname(os.path.abspath(__file__))
 
     def _converted_dir(self, mode=None):
-        sub = 'Disting NT' if (mode or self.output_mode.get()) == 'disting' else 'M8'
+        sub = {'m8': 'M8', 'disting': 'Disting NT', 'xrni': 'XRNI'}[mode or self.output_mode.get()]
         folder = os.path.join(self._app_base_dir(), 'Converted', sub)
         os.makedirs(folder, exist_ok=True)
         return folder
 
     def _ensure_output_folders(self):
         os.makedirs(os.path.join(self._app_base_dir(), 'Converted'), exist_ok=True)
-        self._converted_dir('m8'); self._converted_dir('disting')
+        self._converted_dir('m8'); self._converted_dir('disting'); self._converted_dir('xrni')
 
     def _disting_output_name(self, source_path=None, requested_path=None):
         source_path=source_path or self.xrni.get().strip()
@@ -243,32 +248,56 @@ class App(tk.Tk):
         stem=re.sub(r'_DistingNT$','',stem,flags=re.I)
         return os.path.join(folder,stem+'.json')
 
+    def _xrni_output_name(self, source_path=None, requested_path=None):
+        source_path = source_path or self.xrni.get().strip()
+        stem = os.path.splitext(os.path.basename(source_path))[0] or 'Instrument'
+        name = os.path.basename(requested_path) if requested_path else stem + '_normalized.xrni'
+        if not name.lower().endswith('.xrni'):
+            name += '.xrni'
+        return os.path.join(self._converted_dir('xrni'), name)
+
+    def _output_name(self, source_path=None):
+        mode = self.output_mode.get()
+        if mode == 'xrni':
+            return self._xrni_output_name(source_path)
+        if mode == 'disting':
+            return self._disting_output_name(source_path)
+        return self._mapped_output_name(source_path)
+
     def output_mode_changed(self):
-        is_nt=self.output_mode.get()=='disting'
+        mode = self.output_mode.get()
+        is_m8 = mode == 'm8'
         for rb in getattr(self,'layer_buttons',[]):
-            rb.configure(state='disabled' if is_nt else 'normal')
-        if hasattr(self,'velocity_title'):
-            self.velocity_title.configure(text='3. Velocity Layers — ALL layers retained for Disting NT' if is_nt else '3. Choose M8 Velocity Layer')
-        if hasattr(self,'go'):
-            self.go.configure(text='↻   Convert to Disting NT JSON + Samples' if is_nt else '↻   Convert to M8 WAV')
+            rb.configure(state='normal' if is_m8 else 'disabled')
+        for frame in (self.norm_widget, self.mono_widget):
+            for widget in frame.winfo_children():
+                if isinstance(widget, ttk.Checkbutton):
+                    widget.configure(state='normal' if is_m8 else 'disabled')
+        self.velocity_title.configure(text='3. Choose M8 Velocity Layer' if is_m8
+                                      else '3. Velocity Layers — ALL layers retained')
+        labels = {'m8': '↻   Convert to M8 WAV',
+                  'disting': '↻   Convert to Disting NT JSON + Samples',
+                  'xrni': '↻   Normalize WAVs → XRNI'}
+        self.go.configure(text=labels[mode])
         if self.xrni.get():
-            self.output.set(self._disting_output_name() if is_nt else self._mapped_output_name())
+            self.output.set(self._output_name())
         if self.info:
-            if is_nt:
-                lo=min(self.info.get('notes',[0])); hi=max(self.info.get('notes',[0]))
-                self.preview_label.config(text=f'Notes: {lo} - {hi}     Velocity Layers: ALL ({self.info.get("layers",0)})     Output: Disting NT Poly Multisample')
-            else:
-                self.layer_changed()
+            self.layer_changed()
 
     def pick_xrni(self):
         p=filedialog.askopenfilename(title='Select Renoise instrument',filetypes=[('Renoise instrument','*.xrni'),('All files','*.*')])
         if p:
             self.xrni.set(p)
             self.inspect(p)
-            self.output.set(self._disting_output_name(p) if self.output_mode.get()=='disting' else self._mapped_output_name(p))
+            self.output.set(self._output_name(p))
 
     def pick_output(self):
-        if self.output_mode.get()=='disting':
+        if self.output_mode.get() == 'xrni':
+            p=filedialog.asksaveasfilename(title='Name normalized XRNI (saved in Converted/XRNI)',
+                initialdir=self._converted_dir('xrni'), defaultextension='.xrni',
+                filetypes=[('Renoise instrument','*.xrni')])
+            if p: self.output.set(self._xrni_output_name(requested_path=p))
+        elif self.output_mode.get()=='disting':
             p=filedialog.asksaveasfilename(title='Save Disting NT preset',defaultextension='.json',filetypes=[('Disting NT preset','*.json'),('JSON file','*.json')])
             if p:self.output.set(self._disting_output_name(requested_path=p))
         else:
@@ -303,8 +332,10 @@ class App(tk.Tk):
             self.info={}; self.info_label.config(text=f'Could not inspect instrument:\n{e}'); self.logline(str(e),'bad')
 
     def layer_changed(self):
-        if self.output_mode.get()=='disting':
-            if self.xrni.get(): self.output.set(self._disting_output_name())
+        if self.output_mode.get() != 'm8':
+            if self.xrni.get(): self.output.set(self._output_name())
+            self.preview_label.config(text='All note mappings and velocity layers retained')
+            self.draw_keyboard()
             return
         if self.xrni.get(): self.output.set(self._mapped_output_name())
         if not self.info: return
@@ -361,6 +392,14 @@ class App(tk.Tk):
         if not src or not os.path.isfile(src):
             messagebox.showerror('XRNI Converter','Please select a valid .xrni file.'); return
 
+        if self.output_mode.get() == 'xrni':
+            out=self._xrni_output_name(src, out if out else None)
+            self.output.set(out)
+            self.go.config(state='disabled'); self.bar.start(10)
+            self.logline('Normalizing individual WAVs; preserving instrument settings…')
+            threading.Thread(target=self.convert_xrni,args=(src,out),daemon=True).start()
+            return
+
         if self.output_mode.get()=='disting':
             out=self._disting_output_name(src,out if out else None); self.output.set(out)
             self.go.config(state='disabled'); self.bar.start(10)
@@ -371,6 +410,21 @@ class App(tk.Tk):
         out=self._mapped_output_name(src,out if out else None); self.output.set(out)
         self.go.config(state='disabled'); self.bar.start(10); self.logline(f'Selecting velocity layer {self.layer.get()}…')
         threading.Thread(target=self.convert,args=(src,out,self.layer.get(),self.mono.get(),self.normalize.get()),daemon=True).start()
+
+    def convert_xrni(self,src,out):
+        try:
+            result=conv.write_normalized_xrni(src,out,
+                progress=lambda m:self.after(0,self.logline,m))
+            self.after(0,self.done_xrni,result)
+        except Exception as e:
+            self.after(0,self.failed,str(e))
+
+    def done_xrni(self,result):
+        self.bar.stop(); self.go.config(state='normal')
+        self.output.set(result['xrni'])
+        self.logline(f'Done! {result["wav_count"]} WAV samples processed. All instrument settings retained.','good')
+        self.logline(f'Output: {result["xrni"]}','good')
+        messagebox.showinfo('XRNI normalization complete',f'Normalized XRNI created:\n{result["xrni"]}')
 
     def convert_disting(self,src,out):
         try:
