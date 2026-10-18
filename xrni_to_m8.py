@@ -7,8 +7,113 @@ import argparse, io, os, re, struct, zipfile, json, shutil
 import xml.etree.ElementTree as ET
 import numpy as np
 import soundfile as sf
+import copy
+import tempfile
 
 AUDIO_EXTS=(".wav",".flac",".aif",".aiff")
+
+def _wav_data_span(data):
+    """Locate a single RIFF WAV data chunk without discarding ancillary chunks."""
+    if data[:4] != b'RIFF' or data[8:12] != b'WAVE':
+        raise ValueError('Only little-endian RIFF WAV samples are supported')
+    end = struct.unpack_from('<I', data, 4)[0] + 8
+    if end > len(data):
+        raise ValueError('Truncated WAV')
+    spans = []
+    pos = 12
+    while pos < end:
+        if pos + 8 > end:
+            raise ValueError('Truncated WAV chunk header')
+        size = struct.unpack_from('<I', data, pos + 4)[0]
+        start = pos + 8
+        if start + size > end:
+            raise ValueError('Truncated WAV chunk')
+        if data[pos:pos + 4] == b'data':
+            spans.append((start, start + size))
+        pos = start + size + (size & 1)
+    if len(spans) != 1:
+        raise ValueError('WAV must contain exactly one data chunk')
+    return spans[0]
+
+
+def normalize_wav_bytes(data):
+    """Peak-normalize one WAV; preserve its format and all non-audio bytes.
+
+    One gain is shared by all channels. Silent/empty WAVs are unchanged.
+    Unsupported encodings fail explicitly instead of silently changing bit depth.
+    """
+    start, end = _wav_data_span(data)
+    with sf.SoundFile(io.BytesIO(data)) as wav:
+        subtype, rate = wav.subtype, wav.samplerate
+        audio = wav.read(dtype='float64', always_2d=True)
+    bits = {'PCM_U8': 8, 'PCM_16': 16, 'PCM_24': 24, 'PCM_32': 32}
+    if subtype not in bits and subtype not in ('FLOAT', 'DOUBLE'):
+        raise ValueError(f'Unsupported WAV encoding: {subtype}')
+    if not np.isfinite(audio).all():
+        raise ValueError('WAV contains non-finite audio samples')
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak == 0:
+        return data
+    # Use the largest positive PCM value to avoid clipping at +1.0.
+    target = 1.0 - 2.0 ** (1 - bits[subtype]) if subtype in bits else 1.0
+    encoded = io.BytesIO()
+    sf.write(encoded, (audio / peak) * target, rate, format='WAV', subtype=subtype)
+    replacement = encoded.getvalue()
+    a, b = _wav_data_span(replacement)
+    if b - a != end - start:
+        raise ValueError('WAV encoding would change audio data size')
+    return data[:start] + replacement[a:b] + data[end:]
+
+
+def write_normalized_xrni(xrni_path, output_path=None, progress=None):
+    """Copy an XRNI, normalizing only WAV entries; never replace an existing file.
+
+    The default destination is Converted/XRNI beside this module. Instrument XML
+    and every other archive payload are copied verbatim, with ZIP metadata intact.
+    """
+    if output_path is None:
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Converted', 'XRNI')
+        stem = os.path.splitext(os.path.basename(xrni_path))[0]
+        output_path = os.path.join(folder, stem + '_normalized.xrni')
+    output_path = os.path.abspath(output_path)
+    if os.path.exists(output_path):
+        raise FileExistsError(f'Output already exists; choose a new name: {output_path}')
+    if os.path.realpath(xrni_path) == os.path.realpath(output_path):
+        raise ValueError('Output must be separate from the source instrument')
+    folder = os.path.dirname(output_path)
+    os.makedirs(folder, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.xrni-', suffix='.tmp', dir=folder)
+    os.close(fd)
+    count = 0
+    try:
+        with zipfile.ZipFile(xrni_path) as source:
+            xml = next((i for i in source.infolist()
+                        if i.filename.lower() == 'instrument.xml'), None)
+            if xml is None:
+                raise ValueError('Instrument.xml not found')
+            ET.fromstring(source.read(xml))
+            with zipfile.ZipFile(temporary, 'w') as dest:
+                dest.comment = source.comment
+                for entry in source.infolist():
+                    data = source.read(entry)
+                    if not entry.is_dir() and entry.filename.lower().endswith('.wav'):
+                        try:
+                            data = normalize_wav_bytes(data)
+                        except Exception as exc:
+                            raise ValueError(f'{entry.filename}: {exc}') from exc
+                        count += 1
+                        if progress:
+                            progress(f'Normalized WAV {count}: {entry.filename}')
+                    dest.writestr(copy.copy(entry), data)
+        with zipfile.ZipFile(temporary) as check:
+            if check.testzip() is not None:
+                raise ValueError('Generated XRNI failed archive integrity check')
+        # Publish the finished archive atomically, refusing collisions (also
+        # protects the source from aliases, symlinks and concurrent conversions).
+        os.link(temporary, output_path)
+    finally:
+        os.unlink(temporary)
+    return {'xrni': output_path, 'wav_count': count}
 
 def txt(e,n,d=None):
     x=e.find(n); return x.text.strip() if x is not None and x.text else d
